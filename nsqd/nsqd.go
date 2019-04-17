@@ -54,9 +54,11 @@ type NSQD struct {
 	errValue  atomic.Value
 	startTime time.Time
 
+	// nsqd中的topic map
 	topicMap map[string]*Topic
 
 	clientLock sync.RWMutex
+	//
 	clients    map[int64]Client
 
 	lookupPeers atomic.Value
@@ -71,7 +73,7 @@ type NSQD struct {
 	notifyChan           chan interface{}
 	optsNotificationChan chan struct{}
 	exitChan             chan int
-	waitGroup            util.WaitGroupWrapper
+	waitGroup            util.WaitGroupWrapper    //一组goroutine执行完成再退出
 
 	ci *clusterinfo.ClusterInfo
 }
@@ -254,23 +256,27 @@ func (n *NSQD) Main() error {
 			exitCh <- err
 		})
 	}
-
+	// 	确保所有的goroutine都运行完毕
+	// tcpserver的建立
 	tcpServer := &tcpServer{ctx: ctx}
 	n.waitGroup.Wrap(func() {
 		exitFunc(protocol.TCPServer(n.tcpListener, tcpServer, n.logf))
 	})
+	// httpsever的建立
 	httpServer := newHTTPServer(ctx, false, n.getOpts().TLSRequired == TLSRequired)
 	n.waitGroup.Wrap(func() {
 		exitFunc(http_api.Serve(n.httpListener, httpServer, "HTTP", n.logf))
 	})
 	if n.tlsConfig != nil && n.getOpts().HTTPSAddress != "" {
+		// 都是用newHTTPServer，只是多了个tls层
 		httpsServer := newHTTPServer(ctx, true, true)
 		n.waitGroup.Wrap(func() {
 			exitFunc(http_api.Serve(n.httpsListener, httpsServer, "HTTPS", n.logf))
 		})
 	}
-
+	// 队列scan扫描协程
 	n.waitGroup.Wrap(n.queueScanLoop)
+	// lookup查找协程
 	n.waitGroup.Wrap(n.lookupLoop)
 	if n.getOpts().StatsdAddress != "" {
 		n.waitGroup.Wrap(n.statsdLoop)
@@ -280,13 +286,14 @@ func (n *NSQD) Main() error {
 	return err
 }
 
+// nsqd元数据结构体，nsqd进程退出时写入磁盘，启动时读入内存
 type meta struct {
 	Topics []struct {
 		Name     string `json:"name"`
-		Paused   bool   `json:"paused"`
+		Paused   bool   `json:"paused"`   // topic状态
 		Channels []struct {
 			Name   string `json:"name"`
-			Paused bool   `json:"paused"`
+			Paused bool   `json:"paused"` // channel状态
 		} `json:"channels"`
 	} `json:"topics"`
 }
@@ -618,6 +625,7 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 		case c := <-workCh:
 			now := time.Now().UnixNano()
 			dirty := false
+			// 处理channel的in-flight队列和defered 队列
 			if c.processInFlightQueue(now) {
 				dirty = true
 			}
@@ -644,6 +652,8 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 //
 // If QueueScanDirtyPercent (default: 25%) of the selected channels were dirty,
 // the loop continues without sleep.
+// 处理正在投递中和延迟投递的消息
+// 也就是扫描inflightQueue和deferredQueue这两个优先级队列
 func (n *NSQD) queueScanLoop() {
 	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount)
 	responseCh := make(chan bool, n.getOpts().QueueScanSelectionCount)
@@ -652,7 +662,9 @@ func (n *NSQD) queueScanLoop() {
 	workTicker := time.NewTicker(n.getOpts().QueueScanInterval)
 	refreshTicker := time.NewTicker(n.getOpts().QueueScanRefreshInterval)
 
+	// 获取nsqd下的所有channel
 	channels := n.channels()
+	// 根据channel的数量来创建工作线程来处理inflight queue和defer queue中的消息
 	n.resizePool(len(channels), workCh, responseCh, closeCh)
 
 	for {

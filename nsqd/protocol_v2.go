@@ -33,12 +33,14 @@ type protocolV2 struct {
 	ctx *context
 }
 
+// 接收客户端请求，并根据请求做处理
 func (p *protocolV2) IOLoop(conn net.Conn) error {
 	var err error
 	var line []byte
 	var zeroTime time.Time
 
 	clientID := atomic.AddInt64(&p.ctx.nsqd.clientIDSequence, 1)
+	// 创建clientv2客户端，分配id
 	client := newClientV2(clientID, conn, p.ctx)
 	p.ctx.nsqd.AddClient(client.ID, client)
 
@@ -49,6 +51,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	// could have changed or disabled said attributes)
 	messagePumpStartedChan := make(chan bool)
 	go p.messagePump(client, messagePumpStartedChan)
+	// 说明messagePump开始了，下面就接收命令了
 	<-messagePumpStartedChan
 
 	for {
@@ -81,6 +84,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 		p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): [%s] %s", client, params)
 
 		var response []byte
+		// 分析命令调用函数
 		response, err = p.Exec(client, params)
 		if err != nil {
 			ctx := ""
@@ -122,6 +126,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	return err
 }
 
+// 发送给客户端
 func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): writing msg(%s) to client(%s) - %s", msg.ID, client, msg.Body)
 	var buf = &bytes.Buffer{}
@@ -164,6 +169,7 @@ func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error 
 	return err
 }
 
+// 判断请求的参数
 func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 	if bytes.Equal(params[0], []byte("IDENTIFY")) {
 		return p.IDENTIFY(client, params)
@@ -210,7 +216,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	var flusherChan <-chan time.Time
 	var sampleRate int32
 
-	subEventChan := client.SubEventChan
+	subEventChan := client.SubEventChan      // 在sub中更新消息泵的意思就是将用户订阅的channel发到这里来
 	identifyEventChan := client.IdentifyEventChan
 	outputBufferTicker := time.NewTicker(client.OutputBufferTimeout)
 	heartbeatTicker := time.NewTicker(client.HeartbeatInterval)
@@ -223,6 +229,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	//    2. we're buffered and the channel has nothing left to send us
 	//       (ie. we would block in this loop anyway)
 	//
+	// 刷新数据
 	flushed := true
 
 	// signal to the goroutine that started the messagePump
@@ -230,8 +237,9 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	close(startedChan)
 
 	for {
+		// isReadyformessage是检查client的rdycount，判断是否可以继续往client发送消息
 		if subChannel == nil || !client.IsReadyForMessages() {
-			// the client is not ready to receive messages...
+			// the client is not ready to receive messages or 订阅的channel为空
 			memoryMsgChan = nil
 			backendMsgChan = nil
 			flusherChan = nil
@@ -269,9 +277,10 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 				goto exit
 			}
 			flushed = true
-		case <-client.ReadyStateChan:
+		case <-client.ReadyStateChan:   // 收到了rdy命令，更新了，就可以再发消息了
 		case subChannel = <-subEventChan:
 			// you can't SUB anymore
+			// 每个Client只能订阅一个topic, 下面这个部分就会被跳过
 			subEventChan = nil
 		case identifyData := <-identifyEventChan:
 			// you can't IDENTIFY anymore
@@ -299,7 +308,10 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			if err != nil {
 				goto exit
 			}
+			// 监听backendMsgChan和memoryMsgChan，当有消息传入时，就写入topic和channel
+			// 随机的消息
 		case b := <-backendMsgChan:
+			// 从磁盘中读取出来的消息需要进行解压
 			if sampleRate > 0 && rand.Int31n(100) > sampleRate {
 				continue
 			}
@@ -310,7 +322,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 				continue
 			}
 			msg.Attempts++
-
+			// 把消息传入优先级队列pqueque
 			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
 			client.SendingMessage()
 			err = p.SendMessage(client, msg)
@@ -579,6 +591,7 @@ func (p *protocolV2) CheckAuth(client *clientV2, cmd, topicName, channelName str
 	return nil
 }
 
+// 判断客户端订阅的topic以及channel是否存在，不存在就创建topic和channel
 func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 	if atomic.LoadInt32(&client.State) != stateInit {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot SUB in current state")
@@ -630,7 +643,7 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 	}
 	atomic.StoreInt32(&client.State, stateSubscribed)
 	client.Channel = channel
-	// update message pump
+	// update message pump，更新消息泵
 	client.SubEventChan <- channel
 
 	return okBytes, nil
@@ -1002,6 +1015,7 @@ func getMessageID(p []byte) (*MessageID, error) {
 	if len(p) != MsgIDLength {
 		return nil, errors.New("Invalid Message ID")
 	}
+	//
 	return (*MessageID)(unsafe.Pointer(&p[0])), nil
 }
 

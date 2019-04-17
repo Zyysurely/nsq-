@@ -32,6 +32,7 @@ func (p *tcpServer) Handle(clientConn net.Conn) {
 	var prot protocol.Protocol
 	switch protocolMagic {
 	case "  V1":
+		// 协议v1时handle方法最后调用的方法
 		prot = &LookupProtocolV1{ctx: p.ctx}
 	default:
 		protocol.SendResponse(clientConn, []byte("E_BAD_PROTOCOL"))

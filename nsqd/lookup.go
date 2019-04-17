@@ -75,6 +75,7 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 	}
 }
 
+// 处理与nsqlookupd进程之间的交互
 func (n *NSQD) lookupLoop() {
 	var lookupPeers []*lookupPeer
 	var lookupAddrs []string
@@ -87,6 +88,7 @@ func (n *NSQD) lookupLoop() {
 	}
 
 	// for announcements, lookupd determines the host automatically
+	// 15秒心跳一次，对nsqlookupd执行一次ping操作
 	ticker := time.Tick(15 * time.Second)
 	for {
 		if connect {
@@ -116,7 +118,7 @@ func (n *NSQD) lookupLoop() {
 					n.logf(LOG_ERROR, "LOOKUPD(%s): %s - %s", lookupPeer, cmd, err)
 				}
 			}
-		case val := <-n.notifyChan:
+		case val := <-n.notifyChan: // topic和channel有变化的时候, 发送register, unrigister命令
 			var cmd *nsq.Command
 			var branch string
 

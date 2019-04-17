@@ -11,6 +11,7 @@ type tcpServer struct {
 	ctx *context
 }
 
+// tcp处理客户端连接 需要4 byte标示protocol version
 func (p *tcpServer) Handle(clientConn net.Conn) {
 	p.ctx.nsqd.logf(LOG_INFO, "TCP: new client(%s)", clientConn.RemoteAddr())
 
@@ -39,7 +40,7 @@ func (p *tcpServer) Handle(clientConn net.Conn) {
 			clientConn.RemoteAddr(), protocolMagic)
 		return
 	}
-
+	// 接受客户端的请求，开启IOLoop根据命令做不同的相应的处理
 	err = prot.IOLoop(clientConn)
 	if err != nil {
 		p.ctx.nsqd.logf(LOG_ERROR, "client(%s) - %s", clientConn.RemoteAddr(), err)

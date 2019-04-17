@@ -17,7 +17,8 @@ type httpServer struct {
 	router http.Handler
 }
 
-func newHTTPServer(ctx *Context) *httpServer {
+// context用于传递nsqlookupd地址
+func a znewHTTPServer(ctx *Context) *httpServer {
 	log := http_api.Log(ctx.nsqlookupd.logf)
 
 	router := httprouter.New()
@@ -112,7 +113,7 @@ func (s *httpServer) doLookup(w http.ResponseWriter, req *http.Request, ps httpr
 		return nil, http_api.Err{400, "MISSING_ARG_TOPIC"}
 	}
 
-	registration := s.ctx.nsqlookupd.DB.FindRegistrations("topic", topicName, "")
+	registration := s.ctx.nsqlookupd.DB.FindRegistlrations("topic", topicName, "")
 	if len(registration) == 0 {
 		return nil, http_api.Err{404, "TOPIC_NOT_FOUND"}
 	}

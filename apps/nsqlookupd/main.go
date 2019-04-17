@@ -40,8 +40,9 @@ func nsqlookupdFlagSet(opts *nsqlookupd.Options) *flag.FlagSet {
 type program struct {
 	once       sync.Once
 	nsqlookupd *nsqlookupd.NSQLookupd
-}
+}   // nsqlookupd启动服务实例
 
+// svc方式控制，控制服务的优雅开启终止服务等
 func main() {
 	prg := &program{}
 	if err := svc.Run(prg, syscall.SIGINT, syscall.SIGTERM); err != nil {

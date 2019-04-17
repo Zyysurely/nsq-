@@ -47,12 +47,12 @@ type Channel struct {
 
 	backend BackendQueue
 
-	memoryMsgChan chan *Message
+	memoryMsgChan chan *Message           // channel的消息管道
 	exitFlag      int32
 	exitMutex     sync.RWMutex
 
 	// state tracking
-	clients        map[int64]Consumer
+	clients        map[int64]Consumer     //
 	paused         int32
 	ephemeral      bool
 	deleteCallback func(*Channel)
@@ -61,10 +61,14 @@ type Channel struct {
 	// Stats tracking
 	e2eProcessingLatencyStream *quantile.Quantile
 
+	// 下面都是由优先级队列实现的
+	// 延迟消息投递，放入deferedPQ
 	// TODO: these can be DRYd up
 	deferredMessages map[MessageID]*pqueue.Item
 	deferredPQ       pqueue.PriorityQueue
 	deferredMutex    sync.Mutex
+
+	// 正在发送中的消息记录，直到收到客户端的FIN才会删除，否则timeout就会有重传的问题
 	inFlightMessages map[MessageID]*Message
 	inFlightPQ       inFlightPqueue
 	inFlightMutex    sync.Mutex

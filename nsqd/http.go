@@ -161,7 +161,7 @@ func (s *httpServer) getExistingTopicFromQuery(req *http.Request) (*http_api.Req
 
 	return reqParams, topic, channelName, err
 }
-
+// 查询topic，如果没有就新建
 func (s *httpServer) getTopicFromQuery(req *http.Request) (url.Values, *Topic, error) {
 	reqParams, err := url.ParseQuery(req.URL.RawQuery)
 	if err != nil {
@@ -204,6 +204,7 @@ func (s *httpServer) doPUB(w http.ResponseWriter, req *http.Request, ps httprout
 		return nil, http_api.Err{400, "MSG_EMPTY"}
 	}
 
+	// 查询topic
 	reqParams, topic, err := s.getTopicFromQuery(req)
 	if err != nil {
 		return nil, err
@@ -221,7 +222,7 @@ func (s *httpServer) doPUB(w http.ResponseWriter, req *http.Request, ps httprout
 			return nil, http_api.Err{400, "INVALID_DEFER"}
 		}
 	}
-
+	 // 创建messgae实例
 	msg := NewMessage(topic.GenerateID(), body)
 	msg.deferred = deferred
 	err = topic.PutMessage(msg)

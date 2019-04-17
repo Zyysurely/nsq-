@@ -23,6 +23,8 @@ type program struct {
 	nsqd *nsqd.NSQD
 }
 
+// svc包控制程序的启动
+// 退出信号有SIGINT(输入任意键), SIGTERM(kill)
 func main() {
 	prg := &program{}
 	if err := svc.Run(prg, syscall.SIGINT, syscall.SIGTERM); err != nil {
@@ -68,10 +70,12 @@ func (p *program) Start() error {
 	}
 	p.nsqd = nsqd
 
+	// 加载本地数据nsqd.dat,初始化topic结构
 	err = p.nsqd.LoadMetadata()
 	if err != nil {
 		logFatal("failed to load metadata - %s", err)
 	}
+	// 持久化数据
 	err = p.nsqd.PersistMetadata()
 	if err != nil {
 		logFatal("failed to persist metadata - %s", err)

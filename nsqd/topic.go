@@ -66,6 +66,7 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 			opts := ctx.nsqd.getOpts()
 			lg.Logf(opts.Logger, opts.LogLevel, lg.LogLevel(level), f, args...)
 		}
+		//  diskqueue 里面会维护一个读写文件的 ioLoop，这里面会接收一条消息并写到文件或者从文件里读一条消息并投递出去。
 		t.backend = diskqueue.New(
 			topicName,
 			ctx.nsqd.getOpts().DataPath,
@@ -80,6 +81,7 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 
 	t.waitGroup.Wrap(t.messagePump)
 
+	// 通知lookup有新的topic
 	t.ctx.nsqd.Notify(t)
 
 	return t
@@ -216,7 +218,7 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 
 func (t *Topic) put(m *Message) error {
 	select {
-	case t.memoryMsgChan <- m:
+	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用
 	default:
 		b := bufferPoolGet()
 		err := writeMessageToBackend(b, m, t.backend)
@@ -236,6 +238,8 @@ func (t *Topic) Depth() int64 {
 	return int64(len(t.memoryMsgChan)) + t.backend.Depth()
 }
 
+
+// 这个函数回不断从memorymsgchan和backend队列中读取，并将每个消息都复制一遍，发送给topic下的所有channel（因为channel回修改消息里的字段，因此需要每个消息都复制一遍）
 // messagePump selects over the in-memory and backend queue and
 // writes messages to every channel for this topic
 func (t *Topic) messagePump() {
@@ -264,6 +268,7 @@ func (t *Topic) messagePump() {
 		chans = append(chans, c)
 	}
 	t.RUnlock()
+	//
 	if len(chans) > 0 && !t.IsPaused() {
 		memoryMsgChan = t.memoryMsgChan
 		backendChan = t.backend.ReadChan()
@@ -271,7 +276,7 @@ func (t *Topic) messagePump() {
 
 	// main message loop
 	for {
-		select {
+		select {  //使用 select监听两个chan是否有消息传入
 		case msg = <-memoryMsgChan:
 		case buf = <-backendChan:
 			msg, err = decodeMessage(buf)
@@ -279,7 +284,7 @@ func (t *Topic) messagePump() {
 				t.ctx.nsqd.logf(LOG_ERROR, "failed to decode message - %s", err)
 				continue
 			}
-		case <-t.channelUpdateChan:
+		case <-t.channelUpdateChan:    // 当channel信息更新后，重新设置chan
 			chans = chans[:0]
 			t.RLock()
 			for _, c := range t.channelMap {
@@ -306,7 +311,7 @@ func (t *Topic) messagePump() {
 		case <-t.exitChan:
 			goto exit
 		}
-
+		// 发布消息到topic下所有的channel
 		for i, channel := range chans {
 			chanMsg := msg
 			// copy the message because each channel
@@ -318,7 +323,7 @@ func (t *Topic) messagePump() {
 				chanMsg.Timestamp = msg.Timestamp
 				chanMsg.deferred = msg.deferred
 			}
-			if chanMsg.deferred != 0 {
+			if chanMsg.deferred != 0 {   //  延迟消息未到时间不发送
 				channel.PutMessageDeferred(chanMsg, chanMsg.deferred)
 				continue
 			}

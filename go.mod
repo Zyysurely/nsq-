@@ -10,10 +10,11 @@ require (
 	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db
 	github.com/judwhite/go-svc v1.0.0
 	github.com/julienschmidt/httprouter v1.2.0
+	github.com/mattn/goveralls v0.0.2 // indirect
 	github.com/mreiferson/go-options v0.0.0-20190302015348-0c63f026bcd6
 	github.com/nsqio/go-diskqueue v0.0.0-20180306152900-74cfbc9de839
 	github.com/nsqio/go-nsq v1.0.7
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.2.2 // indirect
-	golang.org/x/sys v0.0.0-20181221143128-b4a75ba826a6 // indirect
+	golang.org/x/tools v0.0.0-20190315214010-f0bfdbff1f9c // indirect
 )

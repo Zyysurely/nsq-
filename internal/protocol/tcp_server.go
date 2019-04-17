@@ -13,6 +13,9 @@ type TCPHandler interface {
 	Handle(net.Conn)
 }
 
+// 这个TCPServer函数是公共函数部分，
+// 因此这个函数也用于nsqd的tcp服务；这个函数和平时见到的golang网络编程模型一样，
+// 在一个for循环中，接收一个客户端，并开启一个新的goroutine来处理这个客户端；
 func TCPServer(listener net.Listener, handler TCPHandler, logf lg.AppLogFunc) error {
 	logf(lg.INFO, "TCP: listening on %s", listener.Addr())
 

@@ -28,6 +28,7 @@ func New(opts *Options) (*NSQLookupd, error) {
 	if opts.Logger == nil {
 		opts.Logger = log.New(os.Stderr, opts.LogPrefix, log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
+	// 初始化了一个nsqlookup的结构，设置好日志级别，
 	l := &NSQLookupd{
 		opts: opts,
 		DB:   NewRegistrationDB(),
@@ -35,10 +36,12 @@ func New(opts *Options) (*NSQLookupd, error) {
 
 	l.logf(LOG_INFO, version.String("nsqlookupd"))
 
+	// tcp接口
 	l.tcpListener, err = net.Listen("tcp", opts.TCPAddress)
 	if err != nil {
 		return nil, fmt.Errorf("listen (%s) failed - %s", opts.TCPAddress, err)
 	}
+	//http接口
 	l.httpListener, err = net.Listen("tcp", opts.HTTPAddress)
 	if err != nil {
 		return nil, fmt.Errorf("listen (%s) failed - %s", opts.TCPAddress, err)
@@ -63,6 +66,7 @@ func (l *NSQLookupd) Main() error {
 		})
 	}
 
+	// 开启tcp和http的服务
 	tcpServer := &tcpServer{ctx: ctx}
 	l.waitGroup.Wrap(func() {
 		exitFunc(protocol.TCPServer(l.tcpListener, tcpServer, l.logf))

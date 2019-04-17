@@ -13,15 +13,15 @@ type RegistrationDB struct {
 }
 
 type Registration struct {
-	Category string
-	Key      string
-	SubKey   string
+	Category string   // "topic" or "channel" 代表这次注册的级别
+	Key      string   // topic name
+	SubKey   string   // channel name
 }
 type Registrations []Registration
 
 type PeerInfo struct {
-	lastUpdate       int64
-	id               string
+	lastUpdate       int64   // 心跳包的最后接收时间
+	id               string  // remote address
 	RemoteAddress    string `json:"remote_address"`
 	Hostname         string `json:"hostname"`
 	BroadcastAddress string `json:"broadcast_address"`
@@ -72,6 +72,7 @@ func (r *RegistrationDB) AddRegistration(k Registration) {
 func (r *RegistrationDB) AddProducer(k Registration, p *Producer) bool {
 	r.Lock()
 	defer r.Unlock()
+	// 有没有这种注册的key
 	_, ok := r.registrationMap[k]
 	if !ok {
 		r.registrationMap[k] = make(map[string]*Producer)

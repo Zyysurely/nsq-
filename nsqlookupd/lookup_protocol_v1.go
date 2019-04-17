@@ -28,15 +28,18 @@ func (p *LookupProtocolV1) IOLoop(conn net.Conn) error {
 	client := NewClientV1(conn)
 	reader := bufio.NewReader(client)
 	for {
+		// 读取用户的请求命令
 		line, err = reader.ReadString('\n')
 		if err != nil {
 			break
 		}
 
 		line = strings.TrimSpace(line)
+		// 按空格切割用户请求，params存储的就是用户的请求命令以及参数
 		params := strings.Split(line, " ")
 
 		var response []byte
+		// 执行请求并返回结果
 		response, err = p.Exec(client, reader, params)
 		if err != nil {
 			ctx := ""
@@ -83,12 +86,16 @@ func (p *LookupProtocolV1) IOLoop(conn net.Conn) error {
 func (p *LookupProtocolV1) Exec(client *ClientV1, reader *bufio.Reader, params []string) ([]byte, error) {
 	switch params[0] {
 	case "PING":
+		// nsqd发送心跳表明自己还活着
 		return p.PING(client, params)
 	case "IDENTIFY":
+		// nsqd第一次连接的时候，验证自己的身份
 		return p.IDENTIFY(client, reader, params[1:])
 	case "REGISTER":
+		// nsqd注册topic或者channel信息
 		return p.REGISTER(client, reader, params[1:])
 	case "UNREGISTER":
+		// nsqd删除topic或者channel时
 		return p.UNREGISTER(client, reader, params[1:])
 	}
 	return nil, protocol.NewFatalClientErr(nil, "E_INVALID", fmt.Sprintf("invalid command %s", params[0]))
