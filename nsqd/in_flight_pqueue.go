@@ -1,5 +1,6 @@
 package nsqd
 
+// 这是一个实现的小根堆
 type inFlightPqueue []*Message
 
 func newInFlightPqueue(capacity int) inFlightPqueue {

@@ -12,7 +12,9 @@ import (
 	"github.com/nsqio/nsq/internal/version"
 )
 
+// 当 nsqd 成功连接上 nsqlookup 之后执行
 func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
+	// 这是一个闭包，传入了nsqd实例和机子的hostName
 	return func(lp *lookupPeer) {
 		ci := make(map[string]interface{})
 		ci["version"] = version.Binary
@@ -74,8 +76,7 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 		}
 	}
 }
-
-// 处理与nsqlookupd进程之间的交互
+// 在nsqd的main函数中调用，包括发送心跳包
 func (n *NSQD) lookupLoop() {
 	var lookupPeers []*lookupPeer
 	var lookupAddrs []string
@@ -91,11 +92,13 @@ func (n *NSQD) lookupLoop() {
 	// 15秒心跳一次，对nsqlookupd执行一次ping操作
 	ticker := time.Tick(15 * time.Second)
 	for {
+		// 连接所有的nsqlookup
 		if connect {
 			for _, host := range n.getOpts().NSQLookupdTCPAddresses {
 				if in(host, lookupAddrs) {
 					continue
 				}
+				// 当lookup地址变了之后，或者没有这个lookup，新建一个lookupPeer实例
 				n.logf(LOG_INFO, "LOOKUP(%s): adding peer", host)
 				lookupPeer := newLookupPeer(host, n.getOpts().MaxBodySize, n.logf,
 					connectCallback(n, hostname))
@@ -108,6 +111,7 @@ func (n *NSQD) lookupLoop() {
 		}
 
 		select {
+			// ping心跳
 		case <-ticker:
 			// send a heartbeat and read a response (read detects closed conns)
 			for _, lookupPeer := range lookupPeers {
@@ -118,7 +122,7 @@ func (n *NSQD) lookupLoop() {
 					n.logf(LOG_ERROR, "LOOKUPD(%s): %s - %s", lookupPeer, cmd, err)
 				}
 			}
-		case val := <-n.notifyChan: // topic和channel有变化的时候, 发送register, unrigister命令
+		case val := <-n.notifyChan: // topic和channel有变化的时候, 发送register, unrigister命令，通知所有的lookup实例
 			var cmd *nsq.Command
 			var branch string
 
@@ -174,6 +178,7 @@ exit:
 	n.logf(LOG_INFO, "LOOKUP: closing")
 }
 
+// 判断s是否在lst中
 func in(s string, lst []string) bool {
 	for _, v := range lst {
 		if s == v {
@@ -183,6 +188,7 @@ func in(s string, lst []string) bool {
 	return false
 }
 
+// 获取当前nsqd实例注册的所有nsqlookup实例
 func (n *NSQD) lookupdHTTPAddrs() []string {
 	var lookupHTTPAddrs []string
 	lookupPeers := n.lookupPeers.Load()

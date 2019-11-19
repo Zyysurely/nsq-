@@ -7,6 +7,7 @@ import (
 
 var bp sync.Pool
 
+// 使用sync.Pool建立bytes.buffer的pool，减少gc的压力
 func init() {
 	bp.New = func() interface{} {
 		return &bytes.Buffer{}

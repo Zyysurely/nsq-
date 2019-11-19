@@ -43,19 +43,19 @@ type Client interface {
 
 type NSQD struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	clientIDSequence int64
+	clientIDSequence int64   // 连接nsqd的client数量
 
 	sync.RWMutex
 
-	opts atomic.Value
+	opts atomic.Value        // nsqd配置文件
 
-	dl        *dirlock.DirLock
+	dl        *dirlock.DirLock   // 文件锁
 	isLoading int32
 	errValue  atomic.Value
 	startTime time.Time
 
 	// nsqd中的topic map
-	topicMap map[string]*Topic
+	topicMap map[string]*Topic   // topicMap
 
 	clientLock sync.RWMutex
 	//
@@ -63,14 +63,14 @@ type NSQD struct {
 
 	lookupPeers atomic.Value
 
-	tcpListener   net.Listener
-	httpListener  net.Listener
-	httpsListener net.Listener
-	tlsConfig     *tls.Config
+	tcpListener   net.Listener    // tcp监听
+	httpListener  net.Listener    // http监听
+	httpsListener net.Listener    // https监听
+	tlsConfig     *tls.Config     // tls配置
 
 	poolSize int
 
-	notifyChan           chan interface{}
+	notifyChan           chan interface{}   // 修改topic/chan的时候通知lookup
 	optsNotificationChan chan struct{}
 	exitChan             chan int
 	waitGroup            util.WaitGroupWrapper    //一组goroutine执行完成再退出
@@ -244,7 +244,7 @@ func (n *NSQD) RemoveClient(clientID int64) {
 }
 
 func (n *NSQD) Main() error {
-	ctx := &context{n}
+	ctx := &context{n}  // 创建nsqd上下文，所以后面topic和channel中才可以取到nsqd实例
 
 	exitCh := make(chan error)
 	var once sync.Once
@@ -256,7 +256,7 @@ func (n *NSQD) Main() error {
 			exitCh <- err
 		})
 	}
-	// 	确保所有的goroutine都运行完毕
+	// 确保所有的goroutine都运行完毕
 	// tcpserver的建立
 	tcpServer := &tcpServer{ctx: ctx}
 	n.waitGroup.Wrap(func() {
@@ -302,6 +302,7 @@ func newMetadataFile(opts *Options) string {
 	return path.Join(opts.DataPath, "nsqd.dat")
 }
 
+// 存储制定文件的路径
 func readOrEmpty(fn string) ([]byte, error) {
 	data, err := ioutil.ReadFile(fn)
 	if err != nil {
@@ -312,6 +313,7 @@ func readOrEmpty(fn string) ([]byte, error) {
 	return data, nil
 }
 
+// 写入文件后close nsqd
 func writeSyncFile(fn string, data []byte) error {
 	f, err := os.OpenFile(fn, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
@@ -326,6 +328,7 @@ func writeSyncFile(fn string, data []byte) error {
 	return err
 }
 
+// 读取存储的nsqd元数据，恢复现场
 func (n *NSQD) LoadMetadata() error {
 	atomic.StoreInt32(&n.isLoading, 1)
 	defer atomic.StoreInt32(&n.isLoading, 0)
@@ -365,7 +368,8 @@ func (n *NSQD) LoadMetadata() error {
 				channel.Pause()
 			}
 		}
-		topic.Start()
+		topic.Start()  // 启动topic
+
 	}
 	return nil
 }
@@ -426,6 +430,7 @@ func (n *NSQD) PersistMetadata() error {
 	return nil
 }
 
+// 关闭操作
 func (n *NSQD) Exit() {
 	if n.tcpListener != nil {
 		n.tcpListener.Close()
@@ -457,13 +462,13 @@ func (n *NSQD) Exit() {
 	n.logf(LOG_INFO, "NSQ: bye")
 }
 
-// GetTopic performs a thread safe operation
+// GetTopic performs a thread safe operation 
 // to return a pointer to a Topic object (potentially new)
 func (n *NSQD) GetTopic(topicName string) *Topic {
 	// most likely, we already have this topic, so try read lock first.
 	n.RLock()
 	t, ok := n.topicMap[topicName]
-	n.RUnlock()
+	n.RUnlock() 
 	if ok {
 		return t
 	}
@@ -550,6 +555,7 @@ func (n *NSQD) DeleteExistingTopic(topicName string) error {
 	return nil
 }
 
+// 通知lookuploop topic和channel的更改
 func (n *NSQD) Notify(v interface{}) {
 	// since the in-memory metadata is incomplete,
 	// should not persist metadata while loading it.
@@ -589,6 +595,7 @@ func (n *NSQD) channels() []*Channel {
 	return channels
 }
 
+// 调整queueScanWorker的goroutine的数量
 // resizePool adjusts the size of the pool of queueScanWorker goroutines
 //
 // 	1 <= pool <= min(num * 0.25, QueueScanWorkerPoolMax)
@@ -604,7 +611,7 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 		if idealPoolSize == n.poolSize {
 			break
 		} else if idealPoolSize < n.poolSize {
-			// contract
+			// contract，根据这个信号关闭一些worker
 			closeCh <- 1
 			n.poolSize--
 		} else {
@@ -625,7 +632,7 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 		case c := <-workCh:
 			now := time.Now().UnixNano()
 			dirty := false
-			// 处理channel的in-flight队列和defered 队列
+			// 处理channel的in-flight队列和defered 队列，这两个函数在channel中有说明
 			if c.processInFlightQueue(now) {
 				dirty = true
 			}
@@ -633,7 +640,7 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 				dirty = true
 			}
 			responseCh <- dirty
-		case <-closeCh:
+		case <-closeCh:   // resize时关闭一批
 			return
 		}
 	}
@@ -655,12 +662,12 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 // 处理正在投递中和延迟投递的消息
 // 也就是扫描inflightQueue和deferredQueue这两个优先级队列
 func (n *NSQD) queueScanLoop() {
-	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount)
+	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount) // worker chan
 	responseCh := make(chan bool, n.getOpts().QueueScanSelectionCount)
 	closeCh := make(chan int)
 
-	workTicker := time.NewTicker(n.getOpts().QueueScanInterval)
-	refreshTicker := time.NewTicker(n.getOpts().QueueScanRefreshInterval)
+	workTicker := time.NewTicker(n.getOpts().QueueScanInterval)            // worker定时器，选取一定数量的channel
+	refreshTicker := time.NewTicker(n.getOpts().QueueScanRefreshInterval)  // refresh定时器
 
 	// 获取nsqd下的所有channel
 	channels := n.channels()

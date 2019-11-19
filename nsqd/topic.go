@@ -16,33 +16,33 @@ import (
 
 type Topic struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	messageCount uint64
+	messageCount uint64 // topic中的消息数目
 	messageBytes uint64
 
-	sync.RWMutex
+	sync.RWMutex                            // 读写锁
 
-	name              string
-	channelMap        map[string]*Channel
-	backend           BackendQueue
-	memoryMsgChan     chan *Message
-	startChan         chan int
-	exitChan          chan int
-	channelUpdateChan chan int
-	waitGroup         util.WaitGroupWrapper
-	exitFlag          int32
-	idFactory         *guidFactory
+	name              string                // topic的名字
+	channelMap        map[string]*Channel   // topic对应的channel map
+	backend           BackendQueue          // 二级策磁盘存储队列
+	memoryMsgChan     chan *Message         // 消息队列，当nsqd收到消息则写入
+	startChan         chan int              // 启动chan
+	exitChan          chan int              // 终止chan
+	channelUpdateChan chan int              // topic对应的channelmap发生改变更新
+	waitGroup         util.WaitGroupWrapper // 多个时间等待完成退出
+	exitFlag          int32                 // topic是否是准备退出
+	idFactory         *guidFactory          // id生成工厂
 
-	ephemeral      bool
-	deleteCallback func(*Topic)
-	deleter        sync.Once
+	ephemeral      bool                     // 是否临时，临时的topic不存入磁盘
+	deleteCallback func(*Topic)             // 删除callback
+	deleter        sync.Once                // 保证只执行一次
 
-	paused    int32
-	pauseChan chan int
+	paused    int32          // topic是否暂停
+	pauseChan chan int       // pause回调
 
-	ctx *context
+	ctx *context             // 上下文
 }
 
-// Topic constructor
+// Topic constructor，生成一个topic实例
 func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topic {
 	t := &Topic{
 		name:              topicName,
@@ -58,7 +58,7 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 		idFactory:         NewGUIDFactory(ctx.nsqd.getOpts().ID),
 	}
 
-	if strings.HasSuffix(topicName, "#ephemeral") {
+	if strings.HasSuffix(topicName, "#ephemeral") {      // 根据topic name加上前缀#ephemeral代表是临时的，临时topic超出内存限制时不落磁盘
 		t.ephemeral = true
 		t.backend = newDummyBackendQueue()
 	} else {
@@ -90,7 +90,7 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 func (t *Topic) Start() {
 	select {
 	case t.startChan <- 1:
-	default:
+	default:                                                                                                                                  
 	}
 }
 
@@ -102,6 +102,7 @@ func (t *Topic) Exiting() bool {
 // GetChannel performs a thread safe operation
 // to return a pointer to a Channel object (potentially new)
 // for the given Topic
+// 不存在这个channelName就新建一个 
 func (t *Topic) GetChannel(channelName string) *Channel {
 	t.Lock()
 	channel, isNew := t.getOrCreateChannel(channelName)
@@ -176,10 +177,11 @@ func (t *Topic) DeleteExistingChannel(channelName string) error {
 }
 
 // PutMessage writes a Message to the queue
+// 向topic写入消息message，memoryMsgQueue满了就写入backend
 func (t *Topic) PutMessage(m *Message) error {
 	t.RLock()
 	defer t.RUnlock()
-	if atomic.LoadInt32(&t.exitFlag) == 1 {
+	if atomic.LoadInt32(&t.exitFlag) == 1 {  // 准备退出时是不能写入的
 		return errors.New("exiting")
 	}
 	err := t.put(m)
@@ -192,6 +194,7 @@ func (t *Topic) PutMessage(m *Message) error {
 }
 
 // PutMessages writes multiple Messages to the queue
+// 一次写入多条message
 func (t *Topic) PutMessages(msgs []*Message) error {
 	t.RLock()
 	defer t.RUnlock()
@@ -218,7 +221,7 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 
 func (t *Topic) put(m *Message) error {
 	select {
-	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用
+	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用！！！
 	default:
 		b := bufferPoolGet()
 		err := writeMessageToBackend(b, m, t.backend)
@@ -277,6 +280,7 @@ func (t *Topic) messagePump() {
 	// main message loop
 	for {
 		select {  //使用 select监听两个chan是否有消息传入
+		// 消息已经被写入磁盘的话，nsq 消费消息就是无序的，因为select的选择就是无序的
 		case msg = <-memoryMsgChan:
 		case buf = <-backendChan:
 			msg, err = decodeMessage(buf)

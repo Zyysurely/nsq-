@@ -16,6 +16,7 @@ import (
 
 const defaultBufferSize = 16 * 1024
 
+// 当前client的状态
 const (
 	stateInit = iota
 	stateDisconnected
@@ -24,6 +25,7 @@ const (
 	stateClosing
 )
 
+// client向nsqd tcp server发送IDENTITY
 type identifyDataV2 struct {
 	ClientID            string `json:"client_id"`
 	Hostname            string `json:"hostname"`
@@ -47,15 +49,16 @@ type identifyEvent struct {
 	MsgTimeout          time.Duration
 }
 
+// 客户端
 type clientV2 struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	ReadyCount    int64
-	InFlightCount int64
-	MessageCount  uint64
-	FinishCount   uint64
-	RequeueCount  uint64
+	ReadyCount    int64    // client 能接受的消息的数目，RDY命令
+	InFlightCount int64    // 发送中的消息总数
+	MessageCount  uint64   // 发送的消息总数
+	FinishCount   uint64   // 发送成功的消息总数
+	RequeueCount  uint64   // 重新发送的消息总数
 
-	pubCounts map[string]uint64
+	pubCounts map[string]uint64   // 生产者，统计生产者向每个topic发送的消息数目
 
 	writeLock sync.RWMutex
 	metaLock  sync.RWMutex
@@ -91,7 +94,7 @@ type clientV2 struct {
 	ClientID string
 	Hostname string
 
-	SampleRate int32
+	SampleRate int32   // 消费速度
 
 	IdentifyEventChan chan identifyEvent
 	SubEventChan      chan *Channel
@@ -104,8 +107,8 @@ type clientV2 struct {
 	lenBuf   [4]byte
 	lenSlice []byte
 
-	AuthSecret string
-	AuthState  *auth.State
+	AuthSecret string        // 鉴权秘钥
+	AuthState  *auth.State   // 
 }
 
 func newClientV2(id int64, conn net.Conn, ctx *context) *clientV2 {

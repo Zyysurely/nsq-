@@ -16,6 +16,7 @@ import (
 	"github.com/nsqio/nsq/internal/quantile"
 )
 
+// 消费者
 type Consumer interface {
 	UnPause()
 	Pause()
@@ -35,24 +36,24 @@ type Consumer interface {
 // messages, timeouts, requeuing, etc.
 type Channel struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	requeueCount uint64
-	messageCount uint64
-	timeoutCount uint64
+	requeueCount uint64      // 重新发送的消息数量
+	messageCount uint64      // channel中的消息总数
+	timeoutCount uint64      // 发送超时的消息数量
 
 	sync.RWMutex
 
-	topicName string
-	name      string
+	topicName string        // topic名
+	name      string        // channel名
 	ctx       *context
 
-	backend BackendQueue
+	backend BackendQueue     // 二级存储
 
 	memoryMsgChan chan *Message           // channel的消息管道
 	exitFlag      int32
 	exitMutex     sync.RWMutex
 
 	// state tracking
-	clients        map[int64]Consumer     //
+	clients        map[int64]Consumer     // 连接这个channel的消费者
 	paused         int32
 	ephemeral      bool
 	deleteCallback func(*Channel)
@@ -93,7 +94,7 @@ func NewChannel(topicName string, channelName string, ctx *context,
 		)
 	}
 
-	c.initPQ()
+	c.initPQ()  // 初始化已发送队列和延迟发送队列
 
 	if strings.HasSuffix(channelName, "#ephemeral") {
 		c.ephemeral = true
@@ -117,11 +118,12 @@ func NewChannel(topicName string, channelName string, ctx *context,
 		)
 	}
 
-	c.ctx.nsqd.Notify(c)
+	c.ctx.nsqd.Notify(c) // 通过nsqd通知lookup，新建channel
 
 	return c
 }
 
+// 初始化队列和message
 func (c *Channel) initPQ() {
 	pqSize := int(math.Max(1, float64(c.ctx.nsqd.getOpts().MemQueueSize)/10))
 
@@ -131,7 +133,7 @@ func (c *Channel) initPQ() {
 	c.inFlightMutex.Unlock()
 
 	c.deferredMutex.Lock()
-	c.deferredMessages = make(map[MessageID]*pqueue.Item)
+	c.deferredMessages = make(map[MessageID]*pqueue.Item) // 记录messageID
 	c.deferredPQ = pqueue.New(pqSize)
 	c.deferredMutex.Unlock()
 }
@@ -208,6 +210,7 @@ finish:
 	return c.backend.Empty()
 }
 
+// 将message加入backend
 // flush persists all the messages in internal memory buffers to the backend
 // it does not drain inflight/deferred because it is only called in Close()
 func (c *Channel) flush() error {
@@ -320,6 +323,7 @@ func (c *Channel) put(m *Message) error {
 	return nil
 }
 
+// 放入延迟消息，开始计时间
 func (c *Channel) PutMessageDeferred(msg *Message, timeout time.Duration) {
 	atomic.AddUint64(&c.messageCount, 1)
 	c.StartDeferredTimeout(msg, timeout)
@@ -350,6 +354,7 @@ func (c *Channel) TouchMessage(clientID int64, id MessageID, clientMsgTimeout ti
 }
 
 // FinishMessage successfully discards an in-flight message
+// 完成发送消息，从inflight中移除
 func (c *Channel) FinishMessage(clientID int64, id MessageID) error {
 	msg, err := c.popInFlightMessage(clientID, id)
 	if err != nil {
@@ -427,12 +432,13 @@ func (c *Channel) RemoveClient(clientID int64) {
 	}
 }
 
+// 将消息写入inFlight队列
 func (c *Channel) StartInFlightTimeout(msg *Message, clientID int64, timeout time.Duration) error {
 	now := time.Now()
 	msg.clientID = clientID
 	msg.deliveryTS = now
 	msg.pri = now.Add(timeout).UnixNano()
-	err := c.pushInFlightMessage(msg)
+	err := c.pushInFlightMessage(msg)  // 检查是否有timeout的消息，如果存在就重新push
 	if err != nil {
 		return err
 	}
@@ -440,6 +446,7 @@ func (c *Channel) StartInFlightTimeout(msg *Message, clientID int64, timeout tim
 	return nil
 }
 
+// 消息写入deffered队列
 func (c *Channel) StartDeferredTimeout(msg *Message, timeout time.Duration) error {
 	absTs := time.Now().Add(timeout).UnixNano()
 	item := &pqueue.Item{Value: msg, Priority: absTs}
@@ -487,6 +494,7 @@ func (c *Channel) addToInFlightPQ(msg *Message) {
 	c.inFlightMutex.Unlock()
 }
 
+// 从inflight中移除
 func (c *Channel) removeFromInFlightPQ(msg *Message) {
 	c.inFlightMutex.Lock()
 	if msg.index == -1 {
@@ -531,6 +539,7 @@ func (c *Channel) addToDeferredPQ(item *pqueue.Item) {
 	c.deferredMutex.Unlock()
 }
 
+// 发送延迟发送的消息，在nsqd.go的queueScanLoop()中调用
 func (c *Channel) processDeferredQueue(t int64) bool {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
@@ -562,6 +571,7 @@ exit:
 	return dirty
 }
 
+// 重发超时的信息，在nsqd.go的queueScanLoop()中调用
 func (c *Channel) processInFlightQueue(t int64) bool {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()

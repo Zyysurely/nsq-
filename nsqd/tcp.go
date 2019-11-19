@@ -10,7 +10,7 @@ import (
 type tcpServer struct {
 	ctx *context
 }
-
+ 
 // tcp处理客户端连接 需要4 byte标示protocol version
 func (p *tcpServer) Handle(clientConn net.Conn) {
 	p.ctx.nsqd.logf(LOG_INFO, "TCP: new client(%s)", clientConn.RemoteAddr())

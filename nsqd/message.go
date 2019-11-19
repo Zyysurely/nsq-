@@ -16,19 +16,20 @@ const (
 type MessageID [MsgIDLength]byte
 
 type Message struct {
-	ID        MessageID
-	Body      []byte
-	Timestamp int64
-	Attempts  uint16
+	ID        MessageID   // 消息id
+	Body      []byte      // 消息体
+	Timestamp int64       // 产生的时间戳
+	Attempts  uint16      // 消息尝试发送的次数
 
 	// for in-flight handling
-	deliveryTS time.Time
-	clientID   int64
-	pri        int64
-	index      int
-	deferred   time.Duration
+	deliveryTS time.Time   // 发送的时间
+	clientID   int64       // 被消费的consumer
+	pri        int64       // 消息的timeout时间
+	index      int         // 在queue中的index
+	deferred   time.Duration    // 消息的延迟发送的时间
 }
 
+// constructor
 func NewMessage(id MessageID, body []byte) *Message {
 	return &Message{
 		ID:        id,
@@ -37,6 +38,7 @@ func NewMessage(id MessageID, body []byte) *Message {
 	}
 }
 
+// 写入bytes.buffe
 func (m *Message) WriteTo(w io.Writer) (int64, error) {
 	var buf [10]byte
 	var total int64

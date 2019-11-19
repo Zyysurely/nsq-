@@ -17,21 +17,21 @@ import (
 // gracefully (i.e. it is all handled by the library).  Clients can simply use the
 // Command interface to perform a round-trip.
 type lookupPeer struct {
-	logf            lg.AppLogFunc
-	addr            string
-	conn            net.Conn
-	state           int32
-	connectCallback func(*lookupPeer)
+	logf            lg.AppLogFunc  // 日志函数
+	addr            string          // nsqdlookupd地址
+	conn            net.Conn       // 当前nsqd和nsqlookupd的连接状态
+	state           int32          // 连接状态
+	connectCallback func(*lookupPeer)   // 连接上之后的回调函数
 	maxBodySize     int64
-	Info            peerInfo
+	Info            peerInfo        // lookuo信息
 }
 
 // peerInfo contains metadata for a lookupPeer instance (and is JSON marshalable)
 type peerInfo struct {
-	TCPPort          int    `json:"tcp_port"`
-	HTTPPort         int    `json:"http_port"`
+	TCPPort          int    `json:"tcp_port"`            // tcp端口
+	HTTPPort         int    `json:"http_port"`           // http端口
 	Version          string `json:"version"`
-	BroadcastAddress string `json:"broadcast_address"`
+	BroadcastAddress string `json:"broadcast_address"`    // 广播地址
 }
 
 // newLookupPeer creates a new lookupPeer instance connecting to the supplied address.
@@ -47,6 +47,7 @@ func newLookupPeer(addr string, maxBodySize int64, l lg.AppLogFunc, connectCallb
 	}
 }
 
+// 连接对应的lookupd
 // Connect will Dial the specified address, with timeouts
 func (lp *lookupPeer) Connect() error {
 	lp.logf(lg.INFO, "LOOKUP connecting to %s", lp.addr)

@@ -1,5 +1,7 @@
 package nsqd
 
+// 假的 BackendQueue，仅为了后缀为 #ephemeral 的 topic 实现 BackendQueue 接口，临时topic
+
 type dummyBackendQueue struct {
 	readChan chan []byte
 }

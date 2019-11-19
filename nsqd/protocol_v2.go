@@ -33,7 +33,7 @@ type protocolV2 struct {
 	ctx *context
 }
 
-// 接收客户端请求，并根据请求做处理
+// 接收客户端请求，并根据请求做处理，是tcp server的hander
 func (p *protocolV2) IOLoop(conn net.Conn) error {
 	var err error
 	var line []byte
@@ -116,17 +116,17 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	}
 
 	p.ctx.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] exiting ioloop", client)
-	conn.Close()
-	close(client.ExitChan)
+	conn.Close()   //关闭tcp
+	close(client.ExitChan) //中止messagePump
 	if client.Channel != nil {
-		client.Channel.RemoveClient(client.ID)
+		client.Channel.RemoveClient(client.ID)  // 从channel的consumer map删除consumer
 	}
 
-	p.ctx.nsqd.RemoveClient(client.ID)
+	p.ctx.nsqd.RemoveClient(client.ID) // 从nsqd的consumer中删除
 	return err
 }
 
-// 发送给客户端
+// 将channel中的消息发送给客户端
 func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): writing msg(%s) to client(%s) - %s", msg.ID, client, msg.Body)
 	var buf = &bytes.Buffer{}
@@ -144,6 +144,7 @@ func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	return nil
 }
 
+// 通过tcp链接发送
 func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error {
 	client.writeLock.Lock()
 
@@ -169,9 +170,9 @@ func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error 
 	return err
 }
 
-// 判断请求的参数
+// 判断请求的参数，就是tcp的router
 func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
-	if bytes.Equal(params[0], []byte("IDENTIFY")) {
+	if bytes.Equal(params[0], []byte("IDENTIFY")) { // client注册
 		return p.IDENTIFY(client, params)
 	}
 	err := enforceTLSPolicy(client, p, params[0])
@@ -179,32 +180,33 @@ func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, err
 	}
 	switch {
-	case bytes.Equal(params[0], []byte("FIN")):
+	case bytes.Equal(params[0], []byte("FIN")):  // 消息消费完毕
 		return p.FIN(client, params)
 	case bytes.Equal(params[0], []byte("RDY")):
 		return p.RDY(client, params)
-	case bytes.Equal(params[0], []byte("REQ")):
+	case bytes.Equal(params[0], []byte("REQ")):   // 重新发送一条消息
 		return p.REQ(client, params)
-	case bytes.Equal(params[0], []byte("PUB")):
+	case bytes.Equal(params[0], []byte("PUB")):    // producer发布一条消息
 		return p.PUB(client, params)
-	case bytes.Equal(params[0], []byte("MPUB")):
+	case bytes.Equal(params[0], []byte("MPUB")):   // producer发布多条消息
 		return p.MPUB(client, params)
-	case bytes.Equal(params[0], []byte("DPUB")):
+	case bytes.Equal(params[0], []byte("DPUB")):   // producer发布延迟消息
 		return p.DPUB(client, params)
-	case bytes.Equal(params[0], []byte("NOP")):
+	case bytes.Equal(params[0], []byte("NOP")):    
 		return p.NOP(client, params)
-	case bytes.Equal(params[0], []byte("TOUCH")):
+	case bytes.Equal(params[0], []byte("TOUCH")):   // 修改消息的timout时间，不重新发送
 		return p.TOUCH(client, params)
-	case bytes.Equal(params[0], []byte("SUB")):
+	case bytes.Equal(params[0], []byte("SUB")):     // 订阅channel
 		return p.SUB(client, params)
-	case bytes.Equal(params[0], []byte("CLS")):
+	case bytes.Equal(params[0], []byte("CLS")):     // client close
 		return p.CLS(client, params)
-	case bytes.Equal(params[0], []byte("AUTH")):
+	case bytes.Equal(params[0], []byte("AUTH")):     // client鉴权
 		return p.AUTH(client, params)
 	}
 	return nil, protocol.NewFatalClientErr(nil, "E_INVALID", fmt.Sprintf("invalid command %s", params[0]))
 }
 
+// 把channel中的消息发送给consumer
 func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	var err error
 	var memoryMsgChan chan *Message
@@ -251,7 +253,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 				goto exit
 			}
 			flushed = true
-		} else if flushed {
+		} else if flushed { //
 			// last iteration we flushed...
 			// do not select on the flusher ticker channel
 			memoryMsgChan = subChannel.memoryMsgChan
@@ -308,7 +310,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			if err != nil {
 				goto exit
 			}
-			// 监听backendMsgChan和memoryMsgChan，当有消息传入时，就写入topic和channel
+			// 监听backendMsgChan和memoryMsgChan，当有消息传入时，就发送给client
 			// 随机的消息
 		case b := <-backendMsgChan:
 			// 从磁盘中读取出来的消息需要进行解压
@@ -331,6 +333,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			flushed = false
 		case msg := <-memoryMsgChan:
+			// 从channel中消费一条消息并写入channel的发送列表
 			if sampleRate > 0 && rand.Int31n(100) > sampleRate {
 				continue
 			}
