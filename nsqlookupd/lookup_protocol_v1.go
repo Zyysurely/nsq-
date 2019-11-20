@@ -21,6 +21,7 @@ type LookupProtocolV1 struct {
 	ctx *Context
 }
 
+// 每一个client连接的时候，对应的IOLoop处理
 func (p *LookupProtocolV1) IOLoop(conn net.Conn) error {
 	var err error
 	var line string
@@ -261,6 +262,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	return response, nil
 }
 
+// 确定nsqd存活
 func (p *LookupProtocolV1) PING(client *ClientV1, params []string) ([]byte, error) {
 	if client.peerInfo != nil {
 		// we could get a PING before other commands on the same client connection

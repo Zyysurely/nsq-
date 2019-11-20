@@ -14,12 +14,12 @@ import (
 )
 
 type NSQLookupd struct {
-	sync.RWMutex
-	opts         *Options
-	tcpListener  net.Listener
-	httpListener net.Listener
-	waitGroup    util.WaitGroupWrapper
-	DB           *RegistrationDB
+	sync.RWMutex               // 读写锁，为了更新相关的channel之类的信息
+	opts         *Options   
+	tcpListener  net.Listener    // tcpListener
+	httpListener net.Listener    // httpListener
+	waitGroup    util.WaitGroupWrapper  // 包一层，当两个listener close的时候执行完毕
+	DB           *RegistrationDB       // 存放当前的注册信息
 }
 
 func New(opts *Options) (*NSQLookupd, error) {

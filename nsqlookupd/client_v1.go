@@ -4,9 +4,10 @@ import (
 	"net"
 )
 
+// 
 type ClientV1 struct {
 	net.Conn
-	peerInfo *PeerInfo
+	peerInfo *PeerInfo   // 对应的就是nsqd中的lookupdpeerinfo
 }
 
 func NewClientV1(conn net.Conn) *ClientV1 {

@@ -126,7 +126,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	return err
 }
 
-// 将channel中的消息发送给客户端
+// 将channel中的消息发送给consumer client
 func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): writing msg(%s) to client(%s) - %s", msg.ID, client, msg.Body)
 	var buf = &bytes.Buffer{}
@@ -144,7 +144,7 @@ func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	return nil
 }
 
-// 通过tcp链接发送
+// send 返回tcp response
 func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error {
 	client.writeLock.Lock()
 
@@ -253,7 +253,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 				goto exit
 			}
 			flushed = true
-		} else if flushed { //
+		} else if flushed { // 上一次已经flush了
 			// last iteration we flushed...
 			// do not select on the flusher ticker channel
 			memoryMsgChan = subChannel.memoryMsgChan
@@ -268,10 +268,10 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 		}
 
 		select {
-		case <-flusherChan:
+		case <-flusherChan:  // 强制flush
 			// if this case wins, we're either starved
 			// or we won the race between other channels...
-			// in either case, force flush
+			// in either case, force flush     //
 			client.writeLock.Lock()
 			err = client.Flush()
 			client.writeLock.Unlock()
@@ -280,7 +280,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			flushed = true
 		case <-client.ReadyStateChan:   // 收到了rdy命令，更新了，就可以再发消息了
-		case subChannel = <-subEventChan:
+		case subChannel = <-subEventChan:  // 因为空值是不能发送的了，所以只能更新一次这个值，除非下面再次sub更改这个值才会进入到这个case
 			// you can't SUB anymore
 			// 每个Client只能订阅一个topic, 下面这个部分就会被跳过
 			subEventChan = nil
@@ -331,7 +331,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			if err != nil {
 				goto exit
 			}
-			flushed = false
+			flushed = false  // 更新为false，表示有需要flush的了
 		case msg := <-memoryMsgChan:
 			// 从channel中消费一条消息并写入channel的发送列表
 			if sampleRate > 0 && rand.Int31n(100) > sampleRate {
@@ -339,7 +339,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout) //放入
 			client.SendingMessage()
 			err = p.SendMessage(client, msg)
 			if err != nil {
@@ -619,7 +619,7 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_CHANNEL",
 			fmt.Sprintf("SUB channel name %q is not valid", channelName))
 	}
-
+	// 通过checkauth判断client是否有订阅的权限
 	if err := p.CheckAuth(client, "SUB", topicName, channelName); err != nil {
 		return nil, err
 	}
@@ -631,6 +631,7 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 	for {
 		topic := p.ctx.nsqd.GetTopic(topicName)
 		channel = topic.GetChannel(channelName)
+		// client加入channel的订阅队列
 		if err := channel.AddClient(client.ID, client); err != nil {
 			return nil, protocol.NewFatalClientErr(nil, "E_TOO_MANY_CHANNEL_CONSUMERS",
 				fmt.Sprintf("channel consumers for %s:%s exceeds limit of %d",

@@ -79,13 +79,13 @@ type clientV2 struct {
 	Writer *bufio.Writer
 
 	OutputBufferSize    int
-	OutputBufferTimeout time.Duration
+	OutputBufferTimeout time.Duration   // 每隔多少时间，bufio writer flush一次
 
-	HeartbeatInterval time.Duration
+	HeartbeatInterval time.Duration     // 心跳的间隔
 
 	MsgTimeout time.Duration
 
-	State          int32
+	State          int32             // client当前状态
 	ConnectTime    time.Time
 	Channel        *Channel
 	ReadyStateChan chan int
@@ -108,9 +108,10 @@ type clientV2 struct {
 	lenSlice []byte
 
 	AuthSecret string        // 鉴权秘钥
-	AuthState  *auth.State   // 
+	AuthState  *auth.State   // 权限状态
 }
 
+// 新建一个client，每次建立一个tcp连接是都会新建一个对应的客户端的实例
 func newClientV2(id int64, conn net.Conn, ctx *context) *clientV2 {
 	var identifier string
 	if conn != nil {
@@ -312,6 +313,7 @@ func (p *prettyConnectionState) GetVersion() string {
 	}
 }
 
+// 是否准备好了接收message
 func (c *clientV2) IsReadyForMessages() bool {
 	if c.Channel.IsPaused() {
 		return false
@@ -322,6 +324,7 @@ func (c *clientV2) IsReadyForMessages() bool {
 
 	c.ctx.nsqd.logf(LOG_DEBUG, "[%s] state rdy: %4d inflt: %4d", c, readyCount, inFlightCount)
 
+	// 能接受的消息总数大于正在发送的消息总数时
 	if inFlightCount >= readyCount || readyCount <= 0 {
 		return false
 	}
@@ -334,6 +337,7 @@ func (c *clientV2) SetReadyCount(count int64) {
 	c.tryUpdateReadyState()
 }
 
+// 更新消费者能接收的消息数目
 func (c *clientV2) tryUpdateReadyState() {
 	// you can always *try* to write to ReadyStateChan because in the cases
 	// where you cannot the message pump loop would have iterated anyway.
@@ -355,6 +359,7 @@ func (c *clientV2) Empty() {
 	c.tryUpdateReadyState()
 }
 
+// 发送消息给消费者，但是这里的操作仅仅是对inFlightCount之类的计数做了一些操作
 func (c *clientV2) SendingMessage() {
 	atomic.AddInt64(&c.InFlightCount, 1)
 	atomic.AddUint64(&c.MessageCount, 1)
@@ -535,6 +540,7 @@ func (c *clientV2) UpgradeSnappy() error {
 	return nil
 }
 
+// 将writer buffer中的缓存的字节全部写入底层的conn
 func (c *clientV2) Flush() error {
 	var zeroTime time.Time
 	if c.HeartbeatInterval > 0 {

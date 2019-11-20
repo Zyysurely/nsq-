@@ -17,8 +17,8 @@ type httpServer struct {
 	router http.Handler
 }
 
-// context用于传递nsqlookupd地址
-func a znewHTTPServer(ctx *Context) *httpServer {
+// context用于传递nsqlookupd地址，启动httpserver响应多种请求
+func newHTTPServer(ctx *Context) *httpServer {
 	log := http_api.Log(ctx.nsqlookupd.logf)
 
 	router := httprouter.New()

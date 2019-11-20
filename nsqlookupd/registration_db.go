@@ -19,6 +19,7 @@ type Registration struct {
 }
 type Registrations []Registration
 
+// 存放nsq节点的数据
 type PeerInfo struct {
 	lastUpdate       int64   // 心跳包的最后接收时间
 	id               string  // remote address

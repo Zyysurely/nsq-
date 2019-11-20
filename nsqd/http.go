@@ -38,6 +38,7 @@ type httpServer struct {
 	router      http.Handler
 }
 
+// 新建一个nsqd的httpserver
 func newHTTPServer(ctx *context, tlsEnabled bool, tlsRequired bool) *httpServer {
 	log := http_api.Log(ctx.nsqd.logf)
 
@@ -112,6 +113,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	s.router.ServeHTTP(w, req)
 }
 
+// 返回nsqd当前的 health 状况
 func (s *httpServer) pingHandler(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	health := s.ctx.nsqd.GetHealth()
 	if !s.ctx.nsqd.IsHealthy() {
@@ -120,6 +122,7 @@ func (s *httpServer) pingHandler(w http.ResponseWriter, req *http.Request, ps ht
 	return health, nil
 }
 
+// 返回nsqd端口、域名等一系列的信息
 func (s *httpServer) doInfo(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -142,6 +145,7 @@ func (s *httpServer) doInfo(w http.ResponseWriter, req *http.Request, ps httprou
 	}, nil
 }
 
+// 从url query语句上获取topic 和 channel
 func (s *httpServer) getExistingTopicFromQuery(req *http.Request) (*http_api.ReqParams, *Topic, string, error) {
 	reqParams, err := http_api.NewReqParams(req)
 	if err != nil {
@@ -182,6 +186,7 @@ func (s *httpServer) getTopicFromQuery(req *http.Request) (url.Values, *Topic, e
 	return reqParams, s.ctx.nsqd.GetTopic(topicName), nil
 }
 
+// pub handler，向nsqd的topic发消息
 func (s *httpServer) doPUB(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	// TODO: one day I'd really like to just error on chunked requests
 	// to be able to fail "too big" requests before we even read
@@ -225,7 +230,7 @@ func (s *httpServer) doPUB(w http.ResponseWriter, req *http.Request, ps httprout
 	 // 创建messgae实例
 	msg := NewMessage(topic.GenerateID(), body)
 	msg.deferred = deferred
-	err = topic.PutMessage(msg)
+	err = topic.PutMessage(msg)   // tcp server中启动了message pump
 	if err != nil {
 		return nil, http_api.Err{503, "EXITING"}
 	}
@@ -233,6 +238,7 @@ func (s *httpServer) doPUB(w http.ResponseWriter, req *http.Request, ps httprout
 	return "OK", nil
 }
 
+// mpub handler，一次性向nsqd发多个消息
 func (s *httpServer) doMPUB(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	var msgs []*Message
 	var exit bool
@@ -311,11 +317,13 @@ func (s *httpServer) doMPUB(w http.ResponseWriter, req *http.Request, ps httprou
 	return "OK", nil
 }
 
+// 创建一个topic
 func (s *httpServer) doCreateTopic(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	_, _, err := s.getTopicFromQuery(req)
 	return nil, err
 }
 
+// 清空topic
 func (s *httpServer) doEmptyTopic(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	reqParams, err := http_api.NewReqParams(req)
 	if err != nil {
@@ -345,6 +353,7 @@ func (s *httpServer) doEmptyTopic(w http.ResponseWriter, req *http.Request, ps h
 	return nil, nil
 }
 
+// 删除一个topic
 func (s *httpServer) doDeleteTopic(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	reqParams, err := http_api.NewReqParams(req)
 	if err != nil {
