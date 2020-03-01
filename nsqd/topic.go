@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nsqio/go-diskqueue"
+	diskqueue "github.com/nsqio/nsq/disk"
 	"github.com/nsqio/nsq/internal/lg"
 	"github.com/nsqio/nsq/internal/quantile"
 	"github.com/nsqio/nsq/internal/util"
@@ -221,7 +221,8 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 
 func (t *Topic) put(m *Message) error {
 	select {
-	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用！！！
+	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用！！!
+	// 增加memory message 
 	default:
 		b := bufferPoolGet()
 		err := writeMessageToBackend(b, m, t.backend)
