@@ -25,6 +25,10 @@ type Topic struct {
 	channelMap        map[string]*Channel   // topic对应的channel map
 	backend           BackendQueue          // 二级策磁盘存储队列
 	memoryMsgChan     chan *Message         // 消息队列，当nsqd收到消息则写入
+
+	memoryToFileChan  chan *Message        // 将内存中的memory定时刷到磁盘中
+	memoryBackend     BackendQueue		   // 内存消息对应的磁盘存储队列
+
 	startChan         chan int              // 启动chan
 	exitChan          chan int              // 终止chan
 	channelUpdateChan chan int              // topic对应的channelmap发生改变更新
@@ -79,13 +83,36 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 		)
 	}
 
+	t.memoryBackend = diskqueue.New(
+		topicName,
+		ctx.nsqd.getOpts().DataPath,
+		ctx.nsqd.getOpts().MaxBytesPerFile,
+		int32(minValidMsgLength),
+		int32(ctx.nsqd.getOpts().MaxMsgSize)+minValidMsgLength,
+		ctx.nsqd.getOpts().SyncEvery,
+		ctx.nsqd.getOpts().SyncTimeout,
+		nil,
+	)
+
 	t.waitGroup.Wrap(t.messagePump)
+	
+	// 内存消息落盘
+	t.waitGroup.Wrap(t.putMemoryToFile)
 
 	// 通知lookup有新的topic
 	t.ctx.nsqd.Notify(t)
 
 	return t
 }
+
+func (t *Topic) putMemoryToFile() {
+	message := <-t.memoryMsgChan
+	// 阻塞落盘
+	b := bufferPoolGet()
+	_ = writeMessageToBackend(b, message, t.memoryBackend)
+	bufferPoolPut(b)
+}
+
 
 func (t *Topic) Start() {
 	select {
@@ -220,9 +247,11 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 }
 
 func (t *Topic) put(m *Message) error {
+	var flag = false
 	select {
 	case t.memoryMsgChan <- m: // 如果memorymsgchan 写满了就写到backend队列中,下面default的使用！！!
-	// 增加memory message 
+	// 增加memory message
+	flag = true
 	default:
 		b := bufferPoolGet()
 		err := writeMessageToBackend(b, m, t.backend)
@@ -233,6 +262,12 @@ func (t *Topic) put(m *Message) error {
 				"TOPIC(%s) ERROR: failed to write message to backend - %s",
 				t.name, err)
 			return err
+		}
+	}
+	if flag {
+		select {
+		case t.memoryToFileChan <- m:
+		default:
 		}
 	}
 	return nil
